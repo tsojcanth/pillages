@@ -13,10 +13,6 @@ function init() {
     players = [];
 	world = World();
 	ticker = Ticker(10);
-	//for (1 .. 10){
-		
-	//}
-	
 	
 	socket = io.listen(8000);
 	
@@ -44,7 +40,8 @@ function onSocketConnection(client) {
     util.log("New player has connected: "+client.id);
     client.on("disconnect", onClientDisconnect);
     client.on("new player", onNewPlayer);
-    client.on("move player", onMovePlayer);
+	client.on("move mob", onMoveMob);
+    //client.on("move player", onMovePlayer);
 };
 
 function onClientDisconnect() {
@@ -62,21 +59,30 @@ function onClientDisconnect() {
 };
 
 function onNewPlayer(data) {
-	console.log("TODO actually do something when a player connects!");
-
 
 	var i, existingPlayer;
+	var that = this;
 
 	var newPlayer = new Player(200, 200);
 	newPlayer.id = this.id;
+	
+	var myMob = Mob();
+	myMob.setController(newPlayer);
+		
+	world.moveMobToXY(myMob,d(10),d(10));
+	
+	
 	this.emit("assign id",{id:newPlayer.id});
 	players.push(newPlayer);
+	that.broadcast.emit("add mob",{ id:myMob.id(), controller:myMob.controllerId() });
+	
+	world.mobs.forEach(function(mob){that.emit("add mob",{ id:mob.id(), controller:mob.controllerId() })});
+	
 	
 	for (i = 0; i < players.length; i++) {
 		existingPlayer = players[i];
 		this.emit("new player", {id: existingPlayer.id, x: existingPlayer.getX(), y: existingPlayer.getY()});
 	};
-
 	
 	this.broadcast.emit(
 		"new player",
@@ -86,11 +92,9 @@ function onNewPlayer(data) {
 			y: newPlayer.getY()
 		}
 	);
-		
-
 
 };
-
+/*
 function onMovePlayer(data) {
 	var movePlayer = playerById(this.id);
 
@@ -98,13 +102,25 @@ function onMovePlayer(data) {
 		util.log("Player not found: "+this.id);
 		return;
 	};
-
-	movePlayer.setX(data.x);
-	movePlayer.setY(data.y);
+	
+	
 
 	this.broadcast.emit("move player", {id: movePlayer.id, x: movePlayer.getX(), y: movePlayer.getY()});
 };
+*/
 
+function onMoveMob(data) {
+	var movePlayer = playerById(this.id);
+
+	if (!movePlayer || !world.mobs[data.id] || world.mobs[data.id].controllerId() != movePlayer.id ) {
+		util.log("Player not found: "+this.id);
+		return;
+	};
+	
+	
+
+	this.broadcast.emit("move player", {id: movePlayer.id, x: movePlayer.getX(), y: movePlayer.getY()});
+};
 
 function playerById(id) {
     var i;
@@ -119,6 +135,7 @@ function playerById(id) {
 function World(){
 	return {
 		mobs : [],
+		buildings:[],
 		moveMobToXY : function(aMob,x,y){
 			aMob.x = x;
 			aMob.y = y;
@@ -129,7 +146,7 @@ function World(){
 			socket.sockets.emit(signalName, payload);
 		},
 		occupiedXY : function(x,y){
-			if (x > 100 && y > 100 && x < 200 && y < 200){ return true; }
+			//if (x > 100 && y > 100 && x < 200 && y < 200){ return true; }
 			for (var aMob in this.mobs) {
 				if (aMob.x == x && aMob.y == y){
 					return true;
@@ -149,6 +166,12 @@ function Mob(){
 		destX : d(500),
 		destY : d(500),
 		
+		controllerId	:	function(){
+			return (this.player?this.player.id:null);
+		},
+		setController : function(player){
+			this.player = player;
+		},
 		id : function(){ return myId; },
 		behave	:	function(){
 
@@ -172,6 +195,7 @@ function Mob(){
 				var dest = (this.tryMoveY() || this.tryMoveX());
 				if (dest){return dest;}
 			}
+			if (this.controllerId()){ return; }
 
 
 			this.destX = d(500);
