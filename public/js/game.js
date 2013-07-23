@@ -36,7 +36,7 @@ function Building(data) {
 	this.w = data.width;
 	this.h = data.depth;
 	
-	this.rect = new pig.Rect(this.x-this.w/2, this.y-this.h/2, this.w, this.h);
+	this.rect = new pig.Rect(this.x, this.y, this.w, this.h);
 	this.graphic = new pig.Image(this.rect.x, this.rect.y, 'assets/mead_hall.png');
 }
 
@@ -64,7 +64,7 @@ function Mob(data) {
 	this.controller = data.controller;
 	this.x = data.x;
 	this.y = data.y;	
-	this.rect = new pig.Rect(this.x-8, this.y-8, 16, 16);
+	this.rect = new pig.Rect(this.x-16, this.y-16, 32, 32);
 	
 	if(this.controller == myId)
 		this.graphic = new pig.Image(this.rect.x, this.rect.y, "assets/viking_red.png");
