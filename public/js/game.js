@@ -63,14 +63,13 @@ function Mob(data) {
 	this.mobid = data.id;	
 	this.controller = data.controller;
 	this.x = data.x;
-	this.y = data.y;
+	this.y = data.y;	
+	this.rect = new pig.Rect(this.x-8, this.y-8, 16, 16);
 	
-	this.draw = function() {		
-		if(this.controller == myId)
-			pig.context.fillStyle = "red";		
-		pig.context.fillRect(this.x-5, this.y-5, 10, 10);
-		pig.context.fillStyle = "black";
-	};
+	if(this.controller == myId)
+		this.graphic = new pig.Image(this.rect.x, this.rect.y, "assets/viking_red.png");
+	else
+		this.graphic = new pig.Image(this.rect.x, this.rect.y, "assets/viking_blue.png");
 	
 	this.mouseDown = function() {		
 		if(this.controller == myId) {
@@ -82,6 +81,10 @@ function Mob(data) {
 	this.move = function(x, y) {
 		this.x = x;
 		this.y = y;
+		this.rect.x = x-8;
+		this.rect.y = y-8;
+		this.graphic.x = this.rect.x;
+		this.graphic.y = this.rect.y;
 	};
 }
 
