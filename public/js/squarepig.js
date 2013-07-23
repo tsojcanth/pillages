@@ -187,7 +187,7 @@ pig.World = function() {
 
 	this.draw = function() {
 		this.entities.sort(function(lhs, rhs) {
-			if(lhs.layer && rhs.layer)
+			if(lhs.layer != undefined && rhs.layer != undefined)
 				return lhs.layer - rhs.layer;
 				
 			if(!lhs.graphic)
@@ -233,7 +233,8 @@ pig.World = function() {
 
 	this.mouseDown = function() {
 		for(var e = this.entities.length-1; e >= 0; --e) {
-			if(this.entities[e].mouseDown())
+			var entity = this.entities[e];
+			if(entity.mouseDown())
 				return ;
 		}
 	} ;
