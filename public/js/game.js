@@ -137,7 +137,8 @@ var setEventHandlers = function() {
 	socket.on("remove player", onRemovePlayer);
 	socket.on("move mob", onMoveMob);
 	socket.on("add mob", onAddMob);
-	socket.on("build", onBuild);
+    socket.on("remove mob", onRemoveMob);
+    socket.on("build", onBuild);
 };
 
 // Browser window resize
@@ -159,6 +160,7 @@ function onSocketConnected() {
 function onSocketDisconnect() {
     console.log("Disconnected from socket server");
     pig.world = new pig.World();
+    mobs = [];
 };
 
 function onAssignId(data){
@@ -171,12 +173,17 @@ function onAddMob(data){
 	mobs[data.id] = new Mob(data);
 	pig.world.add(mobs[data.id]);
 }
+function onRemoveMob(data){
+    console.log(data);
+    pig.world.remove(mobs[data.id]);
+}
 
 function onBuild(data) {
 	pig.world.add(new Building(data));
 }
 
 function onMoveMob(data){
+    console.log(data);
 	if(mobs[data.id])
 		mobs[data.id].move(data.x, data.y);
 }
