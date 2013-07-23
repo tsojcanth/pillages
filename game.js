@@ -5,14 +5,17 @@ var util = require("util"),
 var socket,
     players,
 	world,
-	mobIdCounter = 1,
+	nttCounter = 1,
 	server,
 	ticker;
+	
+	
+console.log("JERKFACE SANITIZE INPUTS");
 	
 function init() {
     players = [];
 	world = World();
-	ticker = Ticker(10);
+	ticker = Ticker(0);
 	
 	socket = io.listen(8000);
 	
@@ -25,7 +28,8 @@ function init() {
 	
 	world.moveMobToXY(Mob(),d(10),d(10));
 	world.moveMobToXY(Mob(),d(10),d(10));
-	world.moveMobToXY(Mob(),d(10),d(10));	world.moveMobToXY(Mob(),d(10),d(10));
+	world.moveMobToXY(Mob(),d(10),d(10));	
+	world.moveMobToXY(Mob(),d(10),d(10));
 	world.moveMobToXY(Mob(),d(10),d(10));
 	
 	
@@ -40,7 +44,8 @@ function onSocketConnection(client) {
     util.log("New player has connected: "+client.id);
     client.on("disconnect", onClientDisconnect);
     client.on("new player", onNewPlayer);
-	client.on("move mob", onMoveMob);
+	client.on("move mob", 	onMoveMob);
+	client.on("build", 		onBuild);
     //client.on("move player", onMovePlayer);
 };
 
@@ -66,17 +71,21 @@ function onNewPlayer(data) {
 	var newPlayer = new Player(200, 200);
 	newPlayer.id = this.id;
 	
-	var myMob = Mob();
-	myMob.setController(newPlayer);
-		
-	world.moveMobToXY(myMob,d(10),d(10));
-	
-	
 	this.emit("assign id",{id:newPlayer.id});
 	players.push(newPlayer);
-	that.broadcast.emit("add mob",{ id:myMob.id(), controller:myMob.controllerId() });
 	
 	world.mobs.forEach(function(mob){that.emit("add mob",{ id:mob.id(), controller:mob.controllerId() })});
+	
+	var myMob = Mob(newPlayer);
+		
+	world.moveMobToXY(myMob,d(10),d(10));
+	myMob = Mob(newPlayer);
+		
+	world.moveMobToXY(myMob,d(20),d(20));
+	
+	
+	
+	
 	
 	
 	for (i = 0; i < players.length; i++) {
@@ -94,33 +103,46 @@ function onNewPlayer(data) {
 	);
 
 };
-/*
-function onMovePlayer(data) {
-	var movePlayer = playerById(this.id);
-
-	if (!movePlayer) {
-		util.log("Player not found: "+this.id);
-		return;
-	};
-	
-	
-
-	this.broadcast.emit("move player", {id: movePlayer.id, x: movePlayer.getX(), y: movePlayer.getY()});
-};
-*/
 
 function onMoveMob(data) {
+
+	console.log(JSON.stringify(data));
 	var movePlayer = playerById(this.id);
 
-	if (!movePlayer || !world.mobs[data.id] || world.mobs[data.id].controllerId() != movePlayer.id ) {
+	if (!movePlayer ) {
+		util.log("Player not found: "+this.id);
+		return;
+	};
+	if (!world.mobs[data.id]){
+		util.log("mo0b not found: "+data.id);
+		return;
+	};
+	
+	var myMob = world.mobs[data.id];
+	
+	if (myMob.controllerId() != movePlayer.id ){
+		util.log("wrong controller: "+movePlayer.id+" "+myMob.controllerId());
+		return;	
+	}
+	
+	myMob.destX = data.x;
+	myMob.destY = data.y;
+	
+	console.log(myMob.destY);
+	
+};
+
+function onBuild(data){
+	var buildingPlayer = playerById(this.id);
+
+	if (!buildingPlayer ) {
 		util.log("Player not found: "+this.id);
 		return;
 	};
 	
-	
-
-	this.broadcast.emit("move player", {id: movePlayer.id, x: movePlayer.getX(), y: movePlayer.getY()});
-};
+	var building = Building(buildingPlayer, LongHouse());
+	world.buildingXY(building,data.x,data.y);
+}
 
 function playerById(id) {
     var i;
@@ -140,13 +162,27 @@ function World(){
 			aMob.x = x;
 			aMob.y = y;
 			if (!this.mobs[aMob.id()]){ this.mobs[aMob.id()] = aMob;}
-			this.publish("move mob",{id: aMob.id(), x: x, y: y});
+			publish("move mob",{id: aMob.id(), x: x, y: y});
 		},
-		publish	: function(signalName,payload){
-			socket.sockets.emit(signalName, payload);
+		buildingXY	: function(building,x,y){
+			building.x = x;
+			building.y = y;
+			if (!this.buildings[building.id()]){ this.buildings[building.id()] = building;}
+			publish("build",{id: building.id(), type:building.type(), x: x, y: y});
 		},
 		occupiedXY : function(x,y){
 			//if (x > 100 && y > 100 && x < 200 && y < 200){ return true; }
+			
+			for (var aBuilding in this.buildings) {
+				if (
+					aBuilding.x <= x && aBuilding.x+aBuilding.width() 	>= x
+					&&
+					aBuilding.y <= y && aBuilding.y+aBuilding.lenght() 	>= y
+					){
+					return true;
+				}
+			}
+			
 			for (var aMob in this.mobs) {
 				if (aMob.x == x && aMob.y == y){
 					return true;
@@ -156,35 +192,56 @@ function World(){
 		}
 	};
 }
-function Mob(){
-	var myId = mobIdCounter++;
+function Building(player, type){
+	var myId = nttCounter++;
+	publish("add mob",{ id:mob.id(), controller:mob.controllerId() });
 	
+	var building = {
+		x: 0,
+		y: 0,
+		controllerId	:	function(){
+			return (player?player.id:null);
+		},
+		id		: function()	{ return myId; 			},
+		type 	: function()	{ return type.name();   },
+		width 	: function()	{ return type.width();	},
+		length 	: function()	{ return type.length();	},
+	};
+	
+	publish("build",{ id:building.id(), controller:building.controllerId(), x:x, y:y, width:building.width(), length:building.length() });
+	
+	return building;
+}
 
+LongHouse = function(){
 	return {
+		width : function(){return 64;},
+		length: function(){return 64;},
+		name  : function(){return "Longhouse";}
+	};
+};
+
+function Mob(player){
+	var myId = nttCounter++;
+	
+	var mob = {
 		x : 0,
 		y : 0,
-		destX : d(500),
-		destY : d(500),
+		destX : 0,
+		destY : 0,
 		
 		controllerId	:	function(){
-			return (this.player?this.player.id:null);
-		},
-		setController : function(player){
-			this.player = player;
+			return (player?player.id:null);
 		},
 		id : function(){ return myId; },
 		behave	:	function(){
-
 			var destination = this.nextDestination();
-		
 			if (destination){world.moveMobToXY(this,destination.x,destination.y);}
 		
 		},
 		nextDestination	:	function(){
 			if (this.x == this.destX && this.y == this.destY){
-				console.log("reached "+this.id());
-				this.destX = d(500);
-				this.destY = d(500);
+				this.setupNextDestination();
 			}
 			
 			if (Math.abs(this.x - this.destX) > Math.abs(this.y - this.destY) ){
@@ -195,14 +252,15 @@ function Mob(){
 				var dest = (this.tryMoveY() || this.tryMoveX());
 				if (dest){return dest;}
 			}
-			if (this.controllerId()){ return; }
-
-
-			this.destX = d(500);
-			this.destY = d(500);
+			this.setupNextDestination();
 			return null;
 			
 		},
+		setupNextDestination: function(){
+			if (this.controllerId()){ return; }
+			this.destX = d(500);
+			this.destY = d(500);
+		}
 		tryMoveX:	function(){
 			if (this.x > this.destX && !world.occupiedXY(this.x-1,this.y)){
 				return {x:this.x-1, y:this.y};
@@ -215,11 +273,15 @@ function Mob(){
 			if (this.y > this.destY && !world.occupiedXY(this.x,this.y-1)){
 				return {x:this.x, y:this.y-1};
 			}
-			if (this.x > this.destY && !world.occupiedXY(this.x,this.y+1)){
+			if (this.y < this.destY && !world.occupiedXY(this.x,this.y+1)){
 				return {x:this.x, y:this.y+1};
 			}
 		}
 	};
+	
+	
+	publish("add mob",{ id:mob.id(), controller:mob.controllerId() });
+	return mob;
 }
 
 function Ticker(msTick){
@@ -248,6 +310,10 @@ function Ticker(msTick){
 function d(faces){
 	return (Math.floor(Math.random()*faces)+1 );
 }
+function publish (signalName,payload){
+	socket.sockets.emit(signalName, payload);
+}
+
 
 init();
 var tick_action = function() {
@@ -261,7 +327,7 @@ var tick_action = function() {
 		)
 		ticker.tickDone();
 	}
-	setTimeout(tick_action,1);
+	setTimeout(tick_action,0);
 };
 
 tick_action();
