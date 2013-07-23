@@ -64,12 +64,14 @@ function Mob(data) {
 	this.controller = data.controller;
 	this.x = data.x;
 	this.y = data.y;	
-	this.rect = new pig.Rect(this.x-16, this.y-16, 32, 32);
+	this.w = 32;
+	this.h = 32;
+	this.rect = new pig.Rect(this.x-this.w/2, this.y-this.h/2, this.w, this.h);
 	
 	if(this.controller == myId)
-		this.graphic = new pig.Image(this.rect.x, this.rect.y, "assets/viking_red.png");
+		this.graphic = new pig.Sprite(this.rect.x, this.rect.y, "assets/viking_red.png", 32, 32);
 	else
-		this.graphic = new pig.Image(this.rect.x, this.rect.y, "assets/viking_blue.png");
+		this.graphic = new pig.Sprite(this.rect.x, this.rect.y, "assets/viking_blue.png", 32, 32);
 	
 	this.mouseDown = function() {		
 		if(this.controller == myId) {
@@ -79,10 +81,14 @@ function Mob(data) {
 	};
 	
 	this.move = function(x, y) {
+		if(x < this.x) 
+			this.graphic.flip = true;
+		else if(x > this.x)
+			this.graphic.flip = false;
 		this.x = x;
 		this.y = y;
-		this.rect.x = x-8;
-		this.rect.y = y-8;
+		this.rect.x = x-this.w/2;
+		this.rect.y = y-this.h/2;
 		this.graphic.x = this.rect.x;
 		this.graphic.y = this.rect.y;
 	};
