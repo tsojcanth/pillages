@@ -1,59 +1,34 @@
 /**************************************************
 ** GAME PLAYER CLASS
 **************************************************/
-var Player = function(startX, startY) {
-	var x = startX,
-		y = startY,
-		id,
-		moveAmount = 2;
-
-	var getX = function() {
-		return x;
-	};
-
-	var getY = function() {
-		return y;
-	};
-
-	var setX = function(newX) {
-		x = newX;
-	};
-
-	var setY = function(newY) {
-		y = newY;
-	};	
+var Player = function(startX, startY, id) {
+	this.x = startX;
+	this.y = startY;
+	this.id = id;
+	var moveAmount = 2;
 		
-	var update = function(keys) {
-		var prevX = x,
-			prevY = y;
+	this.update = function(keys) {
+		var prevX = this.x,
+			prevY = this.y;
 		// Up key takes priority over down
-		if (keys.up) {
-			y -= moveAmount;
-		} else if (keys.down) {
-			y += moveAmount;
+		if (pig.keys[pig.key.UP]) {
+			this.y -= moveAmount;
+		} else if (pig.keys[pig.key.DOWN]) {
+			this.y += moveAmount;
 		};
 
 		// Left key takes priority over right
-		if (keys.left) {
-			x -= moveAmount;
-		} else if (keys.right) {
-			x += moveAmount;
+		if (pig.keys[pig.key.LEFT]) {
+			this.x -= moveAmount;
+		} else if (pig.keys[pig.key.RIGHT]) {
+			this.x += moveAmount;
 		};
 		
-		return (prevX != x || prevY != y) ? true : false;
+		return (prevX != this.x || prevY != this.y) ? true : false;
 	};
 
-	var draw = function(ctx) {
+	this.draw = function(ctx) {
 		ctx.fillRect(x-5, y-5, 10, 10);
 		
 	};
-
-	return {
-		update: update,
-		draw: draw,
-		getX: getX,
-		getY: getY,
-		setX: setX,
-		setY: setY
-	}
 };

@@ -12,15 +12,18 @@
 	
 	<body>
 		<canvas id="gameCanvas"></canvas>
-		<script src="http://localhost:8000/socket.io/socket.io.js"></script>
+		<script src="js/socket.io.js"></script>
 		<script src="js/requestAnimationFrame.js"></script>
 		<script src="js/Keys.js"></script>
 		<script src="js/Player.js"></script>
+		<script src="js/squarepig.js"></script>
 		<script src="js/game.js"></script>
 		<script>
 			// Initialise the game
+			var BASE_URL = "http://192.168.1.108";
+			
 			init();
-			animate();
+			pig.run();
 		</script>
 	</body>
 </html>

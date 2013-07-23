@@ -10,24 +10,87 @@ var canvas,			// Canvas DOM element
 	mobs = [],
 	sprites;
 	
-sprites = new Image();
-sprites.src = 'assets/char.png';
-	
+sprites = pig.loadImage('assets/char.png');
 
+function BuildCursor() {
+	pig.Entity.apply(this);
+	this.layer = 99;
+	
+	this.type = "mead_hall";
+	
+	this.mouseDown = function() {
+		var msg = {x: pig.mouse.x, y: pig.mouse.y, type: this.type};
+		socket.emit("build", msg);
+		this.destroy();
+		return true;
+	};
+}
+
+function Building(data) {
+	pig.Entity.apply(this);
+	console.log(data);
+	
+	this.bid = data.id;
+	this.x = data.x;
+	this.y = data.y;
+	this.w = data.width;
+	this.h = data.depth;
+	
+	this.rect = new pig.Rect(this.x-this.w/2, this.y-this.h/2, this.w, this.h);
+	this.graphic = new pig.Image(this.rect.x, this.rect.y, 'assets/mead_hall.png');
+}
+
+function BuildButton() {
+	pig.Entity.apply(this);
+	this.layer = 100;
+	
+	this.rect = new pig.Rect(pig.canvas.width-48, 0, 48, 48);	
+	this.graphic = new pig.Image(this.rect.x, this.rect.y, "assets/build.png");
+	
+	this.mouseDown = function() {
+		console.log(this.rect.collidePoint(pig.mouse.x, pig.mouse.y));
+		if(this.rect.collidePoint(pig.mouse.x, pig.mouse.y)) {
+			pig.world.add(new BuildCursor());						
+			return true;
+		}
+		return false;
+	};
+}
+
+function Mob(data) {
+	pig.Entity.apply(this);
+	
+	this.mobid = data.id;	
+	this.controller = data.controller;
+	this.x = data.x;
+	this.y = data.y;
+	
+	this.draw = function() {		
+		if(this.controller == myId)
+			pig.context.fillStyle = "red";		
+		pig.context.fillRect(this.x-5, this.y-5, 10, 10);
+		pig.context.fillStyle = "black";
+	};
+	
+	this.mouseDown = function() {		
+		if(this.controller == myId) {
+			console.log(this.mobid, pig.mouse.x, pig.mouse.y);
+			socket.emit("move mob", {id: this.mobid, x: pig.mouse.x, y: pig.mouse.y});	
+		}
+	};
+	
+	this.move = function(x, y) {
+		this.x = x;
+		this.y = y;
+	};
+}
 
 /**************************************************
 ** GAME INITIALISATION
 **************************************************/
 function init() {
-	// Declare the canvas and rendering context
-	canvas = document.getElementById("gameCanvas");
-	ctx = canvas.getContext("2d");
-
-	// Maximise the canvas
-	canvas.width = window.innerWidth;
-	canvas.height = window.innerHeight;
-
-	// Initialise keyboard controls
+	pig.init("gameCanvas");
+	
 	keys = new Keys();
 
 	// Calculate a random start position for the local player
@@ -35,22 +98,25 @@ function init() {
 	// placed right on the egde of the screen
 
 	// Start listening for events
-	socket = io.connect("http://localhost", {port: 8000, transports: ["websocket"]});
-	setEventHandlers();
-	remotePlayers = [];
-	
-
+	socket = io.connect(BASE_URL, {port: 8000, transports: ["websocket"]});
+	setEventHandlers();	
 };
 
+
+function startGame() {	
+	pig.canvas.width = window.innerWidth;
+	pig.canvas.height = window.innerHeight;
+	
+	remotePlayers = [];
+	pig.world = new pig.World();	
+	
+	pig.world.add(new BuildButton());
+}
 
 /**************************************************
 ** GAME EVENT HANDLERS
 **************************************************/
 var setEventHandlers = function() {
-	// Keyboard
-	window.addEventListener("keydown", onKeydown, false);
-	window.addEventListener("keyup", onKeyup, false);
-
 	// Window resize
 	window.addEventListener("resize", onResize, false);
 	
@@ -61,18 +127,8 @@ var setEventHandlers = function() {
 	socket.on("move player", onMovePlayer);
 	socket.on("remove player", onRemovePlayer);
 	socket.on("move mob", onMoveMob);
-	
-	
-};
-
-// Keyboard key down
-function onKeydown(e) {
-	keys.onKeyDown(e);
-};
-
-// Keyboard key up
-function onKeyup(e) {
-	keys.onKeyUp(e);
+	socket.on("add mob", onAddMob);
+	socket.on("build", onBuild);
 };
 
 // Browser window resize
@@ -84,6 +140,8 @@ function onResize(e) {
 
 function onSocketConnected() {
     console.log("Connected to socket server");
+    startGame();
+    
 	//TODO ask the server for position instead of telling the server the position, please
 	
 	socket.emit("new player", {});
@@ -91,20 +149,32 @@ function onSocketConnected() {
 
 function onSocketDisconnect() {
     console.log("Disconnected from socket server");
+    pig.world = new pig.World();
 };
 
 function onAssignId(data){
 	console.log("*** ASSIGNED ID "+data.id);
-	myId = data.id;
-	
+	myId = data.id;	
 }
+
+function onAddMob(data){	
+	console.log(data);
+	mobs[data.id] = new Mob(data);
+	pig.world.add(mobs[data.id]);
+}
+
+function onBuild(data) {
+	pig.world.add(new Building(data));
+}
+
 function onMoveMob(data){
-	mobs[data.id] = data;
+	if(mobs[data.id])
+		mobs[data.id].move(data.x, data.y);
 }
 
 function onNewPlayer(data) {
     console.log("New player connected: "+data.id);
-	var newPlayer = new Player(data.x, data.y);
+	var newPlayer = new Player(data.x, data.y, data.id);
 	newPlayer.id = data.id;
 	remotePlayers.push(newPlayer);
 };
@@ -118,8 +188,8 @@ function onMovePlayer(data) {
 	};
 	console.log("move player "+data.id);
 
-	movePlayer.setX(data.x);
-	movePlayer.setY(data.y);
+	movePlayer.x = data.x;
+	movePlayer.y = data.y;
 };
 
 function onRemovePlayer(data) {
@@ -134,17 +204,6 @@ function onRemovePlayer(data) {
 
 };
 
-/**************************************************
-** GAME ANIMATION LOOP
-**************************************************/
-function animate() {
-	update();
-	draw();
-
-	// Request a new animation frame using Paul Irish's shim
-	window.requestAnimFrame(animate);
-};
-
 
 /**************************************************
 ** GAME UPDATE
@@ -155,36 +214,14 @@ function update() {
 	//console.log(localPlayer?"found":"missing avatar");
 
 	if (localPlayer && localPlayer.update(keys)) {
-		socket.emit("move player", {x: localPlayer.getX(), y: localPlayer.getY()});
+		socket.emit("move player", {x: localPlayer.x, y: localPlayer.y});
 	};
-};
-
-
-/**************************************************
-** GAME DRAW
-**************************************************/
-function draw() {
-	// Wipe the canvas clean
-	ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-	// Draw the local player
-	//localPlayer.draw(ctx);
-	//var i;
-	//for (i = 0; i < remotePlayers.length; i++) {
-	//	remotePlayers[i].draw(ctx);
-	//};
-	
-	mobs.forEach(function(mob){
-		ctx.fillRect(mob.x-5, mob.y-5, 10, 10);
-	});
-	
-	
-	
 };
 
 function myPlayer(){
 	return playerById(myId);
 }
+
 function playerById(id) {
     var i;
     for (i = 0; i < remotePlayers.length; i++) {
