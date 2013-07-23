@@ -9,6 +9,8 @@ var socket,
 	server,
 	ticker;
 	
+var gridSize = 32;
+	
 	
 console.log("JERKFACE SANITIZE INPUTS");
 	
@@ -25,13 +27,7 @@ function init() {
 		
 		setEventHandlers();
 	});
-	
-	world.moveMobToXY(Mob(),d(10),d(10));
-	world.moveMobToXY(Mob(),d(10),d(10));
-	world.moveMobToXY(Mob(),d(10),d(10));	
-	world.moveMobToXY(Mob(),d(10),d(10));
-	world.moveMobToXY(Mob(),d(10),d(10));
-	
+
 	
 	
 };
@@ -74,7 +70,8 @@ function onNewPlayer(data) {
 	this.emit("assign id",{id:newPlayer.id});
 	players.push(newPlayer);
 	
-	world.mobs.forEach(function(mob){that.emit("add mob",{ id:mob.id(), controller:mob.controllerId() })});
+	world.mobs.forEach(		function(mob)		{that.emit("add mob",{ id:mob.id(), controller:mob.controllerId() })});
+	world.buildings.forEach(function(building)	{publish("build",{ id:building.id(), controller:building.controllerId(), x:building.x, y:building.y, width:building.width(), depth:building.depth(), type: building.type() })});
 	
 	var myMob = Mob(newPlayer);
 		
@@ -114,7 +111,7 @@ function onMoveMob(data) {
 		return;
 	};
 	if (!world.mobs[data.id]){
-		util.log("mo0b not found: "+data.id);
+		util.log("mob not found: "+data.id);
 		return;
 	};
 	
@@ -129,10 +126,10 @@ function onMoveMob(data) {
 	myMob.destY = data.y;
 	
 	console.log(myMob.destY);
-	
 };
 
 function onBuild(data){
+	console.log("build "+JSON.stringify(data));
 	var buildingPlayer = playerById(this.id);
 
 	if (!buildingPlayer ) {
@@ -141,7 +138,12 @@ function onBuild(data){
 	};
 	
 	var building = Building(buildingPlayer, LongHouse());
-	world.buildingXY(building,data.x,data.y);
+	
+	var x = Math.floor(data.x/gridSize) * gridSize;
+	var y = Math.floor(data.y/gridSize) * gridSize;
+	
+	
+	world.buildingXY(building,x,y);
 }
 
 function playerById(id) {
@@ -168,16 +170,17 @@ function World(){
 			building.x = x;
 			building.y = y;
 			if (!this.buildings[building.id()]){ this.buildings[building.id()] = building;}
-			publish("build",{id: building.id(), type:building.type(), x: x, y: y});
+			
+			publish("build",{ id:building.id(), controller:building.controllerId(), x:x, y:y, width:building.width(), depth:building.depth(), type: building.type() });
 		},
 		occupiedXY : function(x,y){
-			//if (x > 100 && y > 100 && x < 200 && y < 200){ return true; }
 			
-			for (var aBuilding in this.buildings) {
+			for (var aBuildingId in this.buildings) {
+				var aBuilding = this.buildings[aBuildingId];
 				if (
-					aBuilding.x <= x && aBuilding.x+aBuilding.width() 	>= x
+					aBuilding.x <= x && x < aBuilding.x+aBuilding.width()
 					&&
-					aBuilding.y <= y && aBuilding.y+aBuilding.lenght() 	>= y
+					aBuilding.y <= y && y < aBuilding.y+aBuilding.depth()
 					){
 					return true;
 				}
@@ -194,7 +197,6 @@ function World(){
 }
 function Building(player, type){
 	var myId = nttCounter++;
-	publish("add mob",{ id:mob.id(), controller:mob.controllerId() });
 	
 	var building = {
 		x: 0,
@@ -205,18 +207,16 @@ function Building(player, type){
 		id		: function()	{ return myId; 			},
 		type 	: function()	{ return type.name();   },
 		width 	: function()	{ return type.width();	},
-		length 	: function()	{ return type.length();	},
+		depth 	: function()	{ return type.depth();	},
 	};
-	
-	publish("build",{ id:building.id(), controller:building.controllerId(), x:x, y:y, width:building.width(), length:building.length() });
-	
+		
 	return building;
 }
 
 LongHouse = function(){
 	return {
-		width : function(){return 64;},
-		length: function(){return 64;},
+		width : function(){return 128;},
+		depth : function(){return 128;},
 		name  : function(){return "Longhouse";}
 	};
 };
@@ -260,7 +260,7 @@ function Mob(player){
 			if (this.controllerId()){ return; }
 			this.destX = d(500);
 			this.destY = d(500);
-		}
+		},
 		tryMoveX:	function(){
 			if (this.x > this.destX && !world.occupiedXY(this.x-1,this.y)){
 				return {x:this.x-1, y:this.y};
