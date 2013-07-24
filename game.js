@@ -193,6 +193,7 @@ function World(){
 
             publishBuild(building);
 		},
+        mobGap : function(){return 20},
         cleanUpCorpses  : function(){
 
             var playerMobCount = {};
@@ -238,13 +239,16 @@ function World(){
             return target;
         },
         canBuildAtXY : function(x,y,building){
+
+            var buildGap = this.mobGap();
+
             for (var aBuildingId in this.buildings) {
                 var aBuilding = this.buildings[aBuildingId];
 
                 if (
-                    aBuilding.x <= x+building.width() && x < aBuilding.x+aBuilding.width()
+                    aBuilding.x <= x+building.width()+buildGap && x < aBuilding.x+aBuilding.width()+buildGap
                         &&
-                    aBuilding.y <= y+building.depth() && y < aBuilding.y+aBuilding.depth()
+                    aBuilding.y <= y+building.depth()+buildGap && y < aBuilding.y+aBuilding.depth()+buildGap
                     ){
                     return false;
                 }
@@ -376,20 +380,12 @@ function Mob(player){
             this.hp -= d(6) ;
         },
 		nextDestination	:	function(){
-			if (this.x == this.destX && this.y == this.destY){
+			if (close(this.x,this.destX,2) && close(this.y,this.destY,2)){
 				this.setupNextDestination();
 			}
 
-
-			
-			if (Math.abs(this.x - this.destX) > Math.abs(this.y - this.destY) ){
-				var dest = (this.tryMoveX() || this.tryMoveY());
-				if (dest){return dest;}
-			}
-			else {
-				var dest = (this.tryMoveY() || this.tryMoveX());
-				if (dest){return dest;}
-			}
+			var dest = this.tryMove();
+            if (dest){return dest;}
 
 			return null;
 			
@@ -399,26 +395,39 @@ function Mob(player){
 			this.destX = d(500);
 			this.destY = d(500);
 		},
-		tryMoveX:	function(){
-			if (this.x > this.destX && !world.occupiedXY(this.x-2,this.y,this)){
-				return {x:this.x-2, y:this.y};
-			}
-			if (this.x < this.destX && !world.occupiedXY(this.x+2,this.y,this)){
-				return {x:this.x+2, y:this.y};
-			}
-		},
-		tryMoveY:	function(){
-			if (this.y > this.destY && !world.occupiedXY(this.x,this.y-2,this)){
-				return {x:this.x, y:this.y-2};
-			}
-			if (this.y < this.destY && !world.occupiedXY(this.x,this.y+2,this)){
-				return {x:this.x, y:this.y+2};
-			}
+		tryMove:	function(){
+            var dx = this.destX - this.x;
+            var dy = this.destY - this.y;
+
+//            if      ( dx == 0 || Math.abs(dx/dy) < 0.1){dx = 0;dy = 1;}
+//            else if ( dy == 0 || Math.abs(dy/dx) < 0.1){dx = 1;dy = 0;}
+//            else                             {
+                var length = Math.sqrt( dx*dx+dy*dy );
+                dx /= length;
+                dy /= length;
+            //}
+
+            dx *=2;
+            dy *=2;
+
+            if (!world.occupiedXY(this.x+dx,this.y+dy,this)){
+                return {x:this.x+dx, y:this.y+dy};
+            }
+            dx = sign(dx)*2;
+            dy = sign(dy)*2;
+            if (!world.occupiedXY(this.x+dx,this.y,this)){
+                return {x:this.x+dx, y:this.y};
+            }
+            if (!world.occupiedXY(this.x,this.y+dy,this)){
+                return {x:this.x, y:this.y+dy};
+            }
+
 		}
 	};
 
 	return mob;
 }
+function sign(x) { return x > 0 ? 1 : x < 0 ? -1 : 0; }
 
 function Ticker(msTick){
 	var last_tick_started_at = new Date().getTime();
@@ -437,6 +446,7 @@ function Ticker(msTick){
             if (this.lastSeconds() != Math.floor(now/1000)){
                 console.log("tick per second:"+tickCount);
                 console.log("mobs:"+world.mobs.length);
+                console.log(JSON.stringify(world.mobs));
                 tickCount = 0;
             }
 			running = true;
@@ -469,6 +479,7 @@ function SpecialEventGenerator(){
             return true;
         },
         horde   :   function(){
+            return;
             for (var i = d(20)+6; i>0;i--){
                 var hordling = spawnMob(null,600,600,100);
                 if(hordling) { hordling.hp = d(2); }
