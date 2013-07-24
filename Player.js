@@ -1,8 +1,9 @@
 var Player = function(startX, startY) {
     var x = startX,
         y = startY,
-        id;
-    
+        id,
+        mobCount = 0;
+
     var getX = function() {
         return x;
     };
@@ -20,6 +21,12 @@ var Player = function(startX, startY) {
     };
 
     return {
+        canControlMoreMobs : function(){
+            return (mobCount < 50);
+        },
+        setMobCount: function(count){
+            mobCount = count;
+        },
         getX: getX,
         getY: getY,
         setX: setX,
