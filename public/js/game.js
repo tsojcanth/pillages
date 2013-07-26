@@ -12,14 +12,13 @@ var canvas,			// Canvas DOM element
 	
 sprites = pig.loadImage('assets/char.png');
 
-function BuildCursor() {
+function BuildCursor(type) {
 	pig.Entity.apply(this);
 	this.layer = 99;
-	
-	this.type = "mead_hall";
+
 	
 	this.mouseDown = function() {
-		var msg = {x: pig.mouse.x, y: pig.mouse.y, type: this.type};
+		var msg = {x: pig.mouse.x, y: pig.mouse.y, type: type};
 		socket.emit("build", msg);
 		this.destroy();
 		return true;
@@ -35,26 +34,36 @@ function Building(data) {
 	this.y = data.y;
 	this.w = data.width;
 	this.h = data.depth;
+
+    var image = (data.type == 'mead_hall'   )?  'assets/mead_hall.png'  :
+                (data.type == 'farm'        )?  'assets/farm.png'       :
+                                                'assets/derp.png';
+    if (image == null){}
 	
 	this.rect = new pig.Rect(this.x, this.y, this.w, this.h);
-	this.graphic = new pig.Image(this.rect.x, this.rect.y, 'assets/mead_hall.png');
+	this.graphic = new pig.Image(this.rect.x, this.rect.y, image);
+
 }
 
-function BuildButton() {
+function BuildButton(size,offset,type) {
 	pig.Entity.apply(this);
 	this.layer = 100;
 	
-	this.rect = new pig.Rect(pig.canvas.width-48, 0, 48, 48);	
+	this.rect = new pig.Rect(pig.canvas.width-size, offset, size, offset+size);
 	this.graphic = new pig.Image(this.rect.x, this.rect.y, "assets/build.png");
 	
 	this.mouseDown = function() {
 		console.log(this.rect.collidePoint(pig.mouse.x, pig.mouse.y));
 		if(this.rect.collidePoint(pig.mouse.x, pig.mouse.y)) {
-			pig.world.add(new BuildCursor());						
+			pig.world.add(new BuildCursor(type));
 			return true;
 		}
 		return false;
 	};
+
+
+
+
 }
 
 function Mob(data) {
@@ -119,7 +128,8 @@ function startGame() {
 	remotePlayers = [];
 	pig.world = new pig.World();	
 	
-	pig.world.add(new BuildButton());
+	pig.world.add(new BuildButton(48, 0,'mead_hall'));
+    pig.world.add(new BuildButton(48,48,'farm'));
 }
 
 /**************************************************
@@ -226,8 +236,6 @@ function onRemovePlayer(data) {
 **************************************************/
 function update() {
 	var localPlayer = myPlayer();
-	
-	//console.log(localPlayer?"found":"missing avatar");
 
 	if (localPlayer && localPlayer.update(keys)) {
 		socket.emit("move player", {x: localPlayer.x, y: localPlayer.y});

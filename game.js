@@ -134,6 +134,9 @@ function onMoveMob(data) {
 	myMob.destY = data.y;
 }
 
+
+
+
 function onBuild(data){
 	console.log("build "+JSON.stringify(data));
 	var buildingPlayer = playerById(this.id);
@@ -142,8 +145,12 @@ function onBuild(data){
 		util.log("Player not found: "+this.id);
 		return;
 	}
+    var type =  (data.type == 'mead_hall'   )?  LongHouse() :
+                (data.type == 'farm'        )?  Farm()      :
+                                                null;
+	var building = Building(buildingPlayer, type);
 
-	var building = Building(buildingPlayer, LongHouse());
+    building.behave = type.behaveFunc;
 	
 	var x = Math.floor(data.x/gridSize) * gridSize;
 	var y = Math.floor(data.y/gridSize) * gridSize;
@@ -194,12 +201,13 @@ function World(){
             publishBuild(building);
 		},
         mobGap : function(){return 20},
-        cleanUpCorpses  : function(){
+        cleanUpCorpses  : function(){           //TODO PAOLO FIX ME
 
-            var playerMobCount = {};
+            var playerMobCount          = {};
+            var playerFarmCount         = {};
+            var playerMeadHouseCount    = {};
 
-            players.forEach(function(p){ playerMobCount[p.id] = 0; })
-
+            players.forEach(function(p){ playerMobCount[p.id] = 0;playerFarmCount[p.id] = 0;playerMeadHouseCount[p.id] = 0; })
 
             for (var i = this.mobs.length-1; i>=0 ; i--){
                 var mob = this.mobs[i];
@@ -213,14 +221,31 @@ function World(){
                     playerMobCount[mob.controllerId()]++;
                 }
             }
-
-            //console.log(JSON.stringify(playerMobCount));
+            //TODO paolo fix me
+//            for (var i = this.buildings.length-1; i>=0 ; i--){
+//                var build = this.buildings[i];
+//                if (!build.alive()){
+//                    publishRemoveBuilding(build,"burnt");
+//                    this.buildings.splice(i,1);
+//                }
+//                else {
+//                    playerFarmCount[build.controllerId()]++;
+//                }
+//            }
 
             valueIterator(playerMobCount,function(value,key){
 
                 var player = playerById(key);
                 if (player){
                     player.setMobCount(value);
+                }
+            });
+
+            valueIterator(playerFarmCount,function(value,key){
+
+                var player = playerById(key);
+                if (player){
+                    player.setFarmCount(value);
                 }
             });
 
@@ -244,6 +269,8 @@ function World(){
 
             for (var aBuildingId in this.buildings) {
                 var aBuilding = this.buildings[aBuildingId];
+
+
 
                 if (
                     aBuilding.x <= x+building.width()+buildGap && x < aBuilding.x+aBuilding.width()+buildGap
@@ -299,6 +326,7 @@ function Building(player, type){
 	var myId = nttCounter++;
 	
 	var building = {
+        player : player,
 		x: 0,
 		y: 0,
         cantActUntilTick : 0,
@@ -317,12 +345,7 @@ function Building(player, type){
 		type 	: function()	{ return type.name();   },
 		width 	: function()	{ return type.width();	},
 		depth 	: function()	{ return type.depth();	},
-        behave  : function(tick){
-            if (!player.canControlMoreMobs() || !this.alive() || !this.canActNow(tick)){ return ; }
-            this.lagUntil(tick+100);
-            spawnMob(player,this.x+this.width()/2,this.y+this.depth(),100);
-
-        }
+        behave  : function(){}
 
 	};
 		
@@ -333,8 +356,22 @@ LongHouse = function(){
 	return {
 		width : function(){return 128;},
 		depth : function(){return 128;},
-		name  : function(){return "Longhouse";}
+		name  : function(){return "mead_hall";},
+        behaveFunc  : function(tick){
+            if (!this.player.canControlMoreMobs() || !this.alive() || !this.canActNow(tick)){ return ; }
+            this.lagUntil(tick+(100*this.player.spawnSpeedup()));
+            spawnMob(this.player,this.x+this.width()/2,this.y+this.depth(),100);
+        }
+
 	};
+};
+Farm = function(){
+    return {
+        width : function(){return 128;},
+        depth : function(){return 128;},
+        name  : function(){return "farm";},
+        behaveFunc  : function(tick){}
+    };
 };
 
 function Mob(player){
@@ -366,23 +403,42 @@ function Mob(player){
 
             if (this.canActNow(ticks)){
                 var enemy = world.closeEnemy(this);
-                if (enemy){ this.lagUntil(ticks+10);  this.attack(enemy); }
-
+                if (enemy){
+                    this.lagUntil(ticks+10);
+                    this.attack(enemy);
+                    if (!this.controllerId()) {return;}
+                }
 			    var destination = this.nextDestination();
+
 			    if (destination){world.moveMobToXY(this,destination.x,destination.y);}
             }
 		},
         attack : function(enemyMob){
             publishAttack(this,enemyMob);
-            if (d(6) >= 5){ enemyMob.hurt(this);}
+            if (d(6) >= 5){
+                enemyMob.hurt(this);
+            }
         },
         hurt : function(attacker){
             this.hp -= d(6) ;
         },
 		nextDestination	:	function(){
-			if (close(this.x,this.destX,2) && close(this.y,this.destY,2)){
+            var distant = 2;
+			if (close(this.x,this.destX,3)){
+                this.destX = this.x;
+                distant--
+            }
+            if (close(this.y,this.destY,3)){
+                this.destY = this.y;
+                distant--
+            }
+            if (!distant){
+
+
 				this.setupNextDestination();
-			}
+                return;
+            }
+
 
 			var dest = this.tryMove();
             if (dest){return dest;}
@@ -392,34 +448,38 @@ function Mob(player){
 		},
 		setupNextDestination: function(){
 			if (this.controllerId()){ return; }
-			this.destX = d(500);
-			this.destY = d(500);
+			this.destX = d(2000);
+			this.destY = d(700);
 		},
 		tryMove:	function(){
             var dx = this.destX - this.x;
             var dy = this.destY - this.y;
 
-//            if      ( dx == 0 || Math.abs(dx/dy) < 0.1){dx = 0;dy = 1;}
-//            else if ( dy == 0 || Math.abs(dy/dx) < 0.1){dx = 1;dy = 0;}
-//            else                             {
-                var length = Math.sqrt( dx*dx+dy*dy );
-                dx /= length;
-                dy /= length;
-            //}
+            var length = Math.sqrt( dx*dx+dy*dy );
+            if (length < 1){ this.destX = this.x; this.destY = this.y; return;}
+            dx /= length;
+            dy /= length;
 
             dx *=2;
             dy *=2;
 
             if (!world.occupiedXY(this.x+dx,this.y+dy,this)){
+                this.tickSinceLastMove=0;
                 return {x:this.x+dx, y:this.y+dy};
             }
             dx = sign(dx)*2;
             dy = sign(dy)*2;
             if (!world.occupiedXY(this.x+dx,this.y,this)){
+                this.tickSinceLastMove=0;
                 return {x:this.x+dx, y:this.y};
             }
             if (!world.occupiedXY(this.x,this.y+dy,this)){
+                this.tickSinceLastMove=0;
                 return {x:this.x, y:this.y+dy};
+            }
+            this.tickSinceLastMove++;
+            if (this.tickSinceLastMove > 50){
+                this.setupNextDestination();
             }
 
 		}
@@ -446,7 +506,7 @@ function Ticker(msTick){
             if (this.lastSeconds() != Math.floor(now/1000)){
                 console.log("tick per second:"+tickCount);
                 console.log("mobs:"+world.mobs.length);
-                console.log(JSON.stringify(world.mobs));
+                //console.log(JSON.stringify(world.mobs));
                 tickCount = 0;
             }
 			running = true;
@@ -479,12 +539,18 @@ function SpecialEventGenerator(){
             return true;
         },
         horde   :   function(){
-            return;
-            for (var i = d(20)+6; i>0;i--){
-                var hordling = spawnMob(null,600,600,100);
-                if(hordling) { hordling.hp = d(2); }
-            }
+            var rndX = (d(2)-1.5)*2000+500;
+            var rndY = (d(2)-1.5)*1000+300;
 
+
+            for (var i = d(50)+6; i>0;i--){
+                var hordling = spawnMob(null,rndX,rndY,500);
+                if(hordling) {
+                    hordling.hp = d(2);
+                    hordling.destX = 1000+100+d(200);
+                    hordling.destY = 600 +100+d(200);
+                }
+            }
         }
     };
 }
@@ -506,14 +572,17 @@ function d(faces){
 function publish (signalName,payload){
 	socket.sockets.emit(signalName, payload);
 }
-
 function publishRemoveMob(mob,cause){
-
     publish("remove mob",{id: mob.id(), cause:cause});
 }
+
 function publishBuild(building){
     publish("build",{ id:building.id(), controller:building.controllerId(), x:building.x, y:building.y, width:building.width(), depth:building.depth(), type: building.type() });
 }
+function publishRemoveBuilding(building,cause){
+    publish("remove building",{id: building.id(), cause:cause});
+}
+
 function publishAttack(attacker,defender){
     publish("attack",{id: attacker.id(), target:defender.id()});
 }
@@ -545,8 +614,9 @@ var tick_action = function() {
         world.cleanUpCorpses();
 		ticker.tickDone();
 	}
-	setTimeout(tick_action,5);
+
 };
+setInterval(tick_action,20);
 
 tick_action();
 
