@@ -23,7 +23,7 @@ var Player = function(startX, startY) {
 
     return {
         canControlMoreMobs : function(){
-            return (mobCount < 50);
+            return (mobCount-farmCount*5 < 40);
         },
         setMobCount: function(count){
             mobCount = count;

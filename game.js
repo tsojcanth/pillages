@@ -70,17 +70,14 @@ function onNewPlayer(data) {
 	this.emit("assign id",{id:newPlayer.id});
 	players.push(newPlayer);
 	
-	world.mobs.forEach(		function(mob)		{that.emit("add mob",{ id:mob.id(), controller:mob.controllerId() });that.emit("move mob",{id: mob.id(), x: mob.x, y: mob.y});});
+	world.mobForEach(		function(mob)		{that.emit("add mob",{ id:mob.id(), controller:mob.controllerId() });that.emit("move mob",{id: mob.id(), x: mob.x, y: mob.y});});
 
-    world.buildings.forEach(function(building)	{publishBuild(building)});
-	
-
+    world.buildingForEach(  function(building)	{publishBuild(building)});
 
     spawnMob(newPlayer,100,100,100);
     spawnMob(newPlayer,100,100,100);
     spawnMob(newPlayer,100,100,100);
 
-	
 	for (i = 0; i < players.length; i++) {
 		existingPlayer = players[i];
 		this.emit("new player", {id: existingPlayer.id, x: existingPlayer.getX(), y: existingPlayer.getY()});
@@ -138,7 +135,7 @@ function onMoveMob(data) {
 
 
 function onBuild(data){
-	console.log("build "+JSON.stringify(data));
+	//console.log("build "+JSON.stringify(data));
 	var buildingPlayer = playerById(this.id);
 
 	if (!buildingPlayer ) {
@@ -150,14 +147,13 @@ function onBuild(data){
                                                 null;
 	var building = Building(buildingPlayer, type);
 
-    building.behave = type.behaveFunc;
-	
 	var x = Math.floor(data.x/gridSize) * gridSize;
 	var y = Math.floor(data.y/gridSize) * gridSize;
 
     if (world.canBuildAtXY(x,y,building)){
 	    world.buildingXY(building,x,y);
     }
+    return;
 }
 
 function playerById(id) {
@@ -184,7 +180,6 @@ function World(){
         },
         addMobAtXY : function(aMob,x,y){
             publish("add mob",{ id:aMob.id(), controller:aMob.controllerId() });
-            //aMob.world = this;
             this.mobs.push(aMob);
             this.moveMobToXY(aMob,x,y);
         },
@@ -196,8 +191,7 @@ function World(){
 		buildingXY	: function(building,x,y){
 			building.x = x;
 			building.y = y;
-			if (!this.buildings[building.id()]){ this.buildings[building.id()] = building;}
-
+            this.buildings.push(building);
             publishBuild(building);
 		},
         mobGap : function(){return 20},
@@ -221,17 +215,17 @@ function World(){
                     playerMobCount[mob.controllerId()]++;
                 }
             }
-            //TODO paolo fix me
-//            for (var i = this.buildings.length-1; i>=0 ; i--){
-//                var build = this.buildings[i];
-//                if (!build.alive()){
-//                    publishRemoveBuilding(build,"burnt");
-//                    this.buildings.splice(i,1);
-//                }
-//                else {
-//                    playerFarmCount[build.controllerId()]++;
-//                }
-//            }
+
+            for (var i = this.buildings.length-1; i>=0 ; i--){
+                var build = this.buildings[i];
+                if (!build.alive()){
+                    publishRemoveBuilding(build,"burnt");
+                    this.buildings.splice(i,1);
+                }
+                else {
+                    playerFarmCount[build.controllerId()]++;
+                }
+            }
 
             valueIterator(playerMobCount,function(value,key){
 
@@ -252,6 +246,7 @@ function World(){
         },
         closeEnemy      : function(mob){
             var target = null;
+
             valueIterator(this.mobs, function(aMob){
 
                 if (aMob === mob) { return 1; }
@@ -318,7 +313,16 @@ function World(){
 			});
             if (isClose) {return true;}
 			return null;
-		}
+		},
+        mobForEach  : function(lambda){
+            this.mobs.forEach(lambda);
+        },
+        buildingForEach : function(lambda){
+            this.buildings.forEach(lambda);
+        }   ,
+        mobCount        : function(){
+            return this.mobs.length;
+        }
 	};
 }
 function close(a,b,range){return (Math.abs(a-b) < range);}
@@ -341,11 +345,11 @@ function Building(player, type){
         lagUntil : function(tick){
             this.cantActUntilTick = tick;
         },
-		id		: function()	{ return myId; 			},
-		type 	: function()	{ return type.name();   },
-		width 	: function()	{ return type.width();	},
-		depth 	: function()	{ return type.depth();	},
-        behave  : function(){}
+		id		: function()	{ return myId; 			        },
+		type 	: function()	{ return type.name();           },
+		width 	: function()	{ return type.width();	        },
+		depth 	: function()	{ return type.depth();	        },
+        behave  : function(tick){ return type.behaveFunc(this, tick); }
 
 	};
 		
@@ -357,10 +361,10 @@ LongHouse = function(){
 		width : function(){return 128;},
 		depth : function(){return 128;},
 		name  : function(){return "mead_hall";},
-        behaveFunc  : function(tick){
-            if (!this.player.canControlMoreMobs() || !this.alive() || !this.canActNow(tick)){ return ; }
-            this.lagUntil(tick+(100*this.player.spawnSpeedup()));
-            spawnMob(this.player,this.x+this.width()/2,this.y+this.depth(),100);
+        behaveFunc  : function(building,tick){
+            if (!building.alive() || !building.player.canControlMoreMobs() ||  !building.canActNow(tick)){ return ; }
+            building.lagUntil(tick+(100*building.player.spawnSpeedup()));
+            spawnMob(building.player,building.x+this.width()/2,building.y+building.depth(),100);
         }
 
 	};
@@ -505,8 +509,7 @@ function Ticker(msTick){
             tickCount++;
             if (this.lastSeconds() != Math.floor(now/1000)){
                 console.log("tick per second:"+tickCount);
-                console.log("mobs:"+world.mobs.length);
-                //console.log(JSON.stringify(world.mobs));
+                console.log("mobs:"+world.mobCount());
                 tickCount = 0;
             }
 			running = true;
@@ -527,6 +530,7 @@ function SpecialEventGenerator(){
     var time = 0;
     return {
         specialEvent	: function(){
+            if (players.length == 0){return;}
 
             var now = new Date().getTime();
             if (now < next_event_not_before){
@@ -539,6 +543,7 @@ function SpecialEventGenerator(){
             return true;
         },
         horde   :   function(){
+
             var rndX = (d(2)-1.5)*2000+500;
             var rndY = (d(2)-1.5)*1000+300;
 
@@ -599,13 +604,13 @@ var tick_action = function() {
         shenaniganSource.specialEvent();
 
 		
-		world.mobs.forEach(
+		world.mobForEach(
 			function(mob){
 				mob.behave(ticker.ticks());
 			}
 		);
 
-        world.buildings.forEach(
+        world.buildingForEach(
             function (building){
                 building.behave(ticker.ticks());
             }
