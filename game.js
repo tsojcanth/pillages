@@ -40,7 +40,7 @@ function onSocketConnection(client) {
     util.log("New player has connected: "+client.id);
     client.on("disconnect", onClientDisconnect);
     client.on("new player", onNewPlayer);
-	client.on("move mob", 	onMoveMob);
+	client.on("move mob", 	onMoveOrderMob);
 	client.on("build", 		onBuild);
     //client.on("move player", onMovePlayer);
 }
@@ -110,7 +110,7 @@ function spawnMob(player,xCenter,yCenter,spread){
     return myMob;
 }
 
-function onMoveMob(data) {
+function onMoveOrderMob(data) {
 	var movePlayer = playerById(this.id);
 	if (!movePlayer ) {
 		util.log("Player not found: "+this.id);
@@ -380,16 +380,19 @@ Farm = function(){
 
 function Mob(player){
 	var myId = nttCounter++;
-	
+
+    var hpAtGeneration = d(6)+2;
 	var mob = {
         //identifier : (player?player.id:null),
 		x : 0,
 		y : 0,
 		destX : 0,
 		destY : 0,
-        hp : d(6)+2,
+        hp : hpAtGeneration,
+        hpMax : hpAtGeneration,
         cantActUntilTick : 0,
         alive : function(){ return this.hp > 0;},
+        heal1HP : function(){ if (this.hp < this.hpMax){this.hp++}},
         controller    :   function(){
             return (player?player:null);
         },
@@ -419,9 +422,8 @@ function Mob(player){
 		},
         attack : function(enemyMob){
             publishAttack(this,enemyMob);
-            if (d(6) >= 5){
-                enemyMob.hurt(this);
-            }
+            enemyMob.hurt(this);
+
         },
         hurt : function(attacker){
             this.hp -= d(6) ;
@@ -437,12 +439,9 @@ function Mob(player){
                 distant--
             }
             if (!distant){
-
-
 				this.setupNextDestination();
                 return;
             }
-
 
 			var dest = this.tryMove();
             if (dest){return dest;}
@@ -461,6 +460,7 @@ function Mob(player){
 
             var length = Math.sqrt( dx*dx+dy*dy );
             if (length < 1){ this.destX = this.x; this.destY = this.y; return;}
+
             dx /= length;
             dy /= length;
 
@@ -483,9 +483,13 @@ function Mob(player){
             }
             this.tickSinceLastMove++;
             if (this.tickSinceLastMove > 50){
+                this.tickSinceLastMove=0;
+                if (this.controller()){
+                    this.heal1HP();
+                    return;
+                }
                 this.setupNextDestination();
             }
-
 		}
 	};
 
@@ -568,8 +572,6 @@ function valueIterator(hash, lambda){
             }
         }
     }
-
-
 }
 function d(faces){
 	return (Math.floor(Math.random()*faces)+1 );
@@ -580,14 +582,12 @@ function publish (signalName,payload){
 function publishRemoveMob(mob,cause){
     publish("remove mob",{id: mob.id(), cause:cause});
 }
-
 function publishBuild(building){
     publish("build",{ id:building.id(), controller:building.controllerId(), x:building.x, y:building.y, width:building.width(), depth:building.depth(), type: building.type() });
 }
 function publishRemoveBuilding(building,cause){
     publish("remove building",{id: building.id(), cause:cause});
 }
-
 function publishAttack(attacker,defender){
     publish("attack",{id: attacker.id(), target:defender.id()});
 }
