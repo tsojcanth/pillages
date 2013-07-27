@@ -2,7 +2,8 @@ var Player = function(startX, startY) {
     var x = startX,
         y = startY,
         id,
-        mobCount = 0;
+        mobCount = 0,
+        farmCount = 0;
 
     var getX = function() {
         return x;
@@ -22,11 +23,14 @@ var Player = function(startX, startY) {
 
     return {
         canControlMoreMobs : function(){
-            return (mobCount < 50);
+            return (mobCount-farmCount*5 < 40);
         },
         setMobCount: function(count){
             mobCount = count;
         },
+        spawnSpeedup    : function(){ return 0.5+1/(1+farmCount); },
+        setFarmCount    : function(count){ farmCount = count;},
+
         getX: getX,
         getY: getY,
         setX: setX,
