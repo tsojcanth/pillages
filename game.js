@@ -9,9 +9,10 @@ var socket,
 	server,
 	ticker;
 	
-var gridSize = 32;
-	
-	
+var gridSize        = 32,
+    MAX_NTT_WIDTH   = 64;
+
+
 console.log("JERKFACE SANITIZE INPUTS");
 	
 function init() {
@@ -96,20 +97,18 @@ function onNewPlayer(data) {
 
 function spawnMob(player,xCenter,yCenter,spread){
     var myMob = Mob(player);
-
-    var x, y,attempt = 0;
+    var x, y,attempt = 5;
     do {
         x = xCenter+d(spread)-spread/2;
         y = yCenter+d(spread)-spread/2;
         attempt++;
-    } while (world.occupiedXY(x,y,myMob) && attempt < 20);
-    if (attempt > 19){return null}
-    world.addMobAtXY(myMob,x,y);
+    } while (world.occupiedXY(x,y,myMob) && attempt);
+    if (!attempt){return null}
+    world.moveMobToXY(myMob,x,y);
     myMob.destX = x;
     myMob.destY = y;
     return myMob;
 }
-
 function onMoveOrderMob(data) {
 	var movePlayer = playerById(this.id);
 	if (!movePlayer ) {
@@ -130,10 +129,6 @@ function onMoveOrderMob(data) {
 	myMob.destX = data.x;
 	myMob.destY = data.y;
 }
-
-
-
-
 function onBuild(data){
 	//console.log("build "+JSON.stringify(data));
 	var buildingPlayer = playerById(this.id);
@@ -151,11 +146,9 @@ function onBuild(data){
 	var y = Math.floor(data.y/gridSize) * gridSize;
 
     if (world.canBuildAtXY(x,y,building)){
-	    world.buildingXY(building,x,y);
+        world.buildingXY(building,x,y);
     }
-    return;
 }
-
 function playerById(id) {
     var i;
     for (i = 0; i < players.length; i++) {
@@ -165,11 +158,110 @@ function playerById(id) {
 
     return false;
 };
-
-function World(){
+function World(centerX,centerY,size){
 	return {
-		mobs : [],
+        // CONTENTS
+        mobs : [],
 		buildings:[],
+        leaf_smallX_bigY : null,  // small x, big y
+        leaf_bigX_bigY : null,  // big   x, big y
+        leaf_smallX_smallY : null,  // small x, small y
+        leaf_bigX_smallY : null,  // big   x, small y
+        quad_center_point_x : centerX,
+        quad_center_point_y : centerY,
+        size : size,
+
+        split       : function(){
+            if (this.size< 10){ return; }
+
+            var d = this.size/2;
+            var center_d = d/2;
+
+
+
+            this.leaf_smallX_smallY = World(this.quad_center_point_x-center_d,this.quad_center_point_y-center_d,d);
+            this.leaf_smallX_bigY   = World(this.quad_center_point_x-center_d,this.quad_center_point_y+center_d,d);
+            this.leaf_bigX_smallY   = World(this.quad_center_point_x+center_d,this.quad_center_point_y-center_d,d);
+            this.leaf_bigX_bigY     = World(this.quad_center_point_x+center_d,this.quad_center_point_y+center_d,d);
+
+        },
+        is_split    : function(){
+            return (this.leaf_smallX_bigY);
+        },
+        delegate_until_result_found : function(lambda, pars){
+            if (!this.is_split()){return;}
+            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_until_result_found");
+            var result = lambda.apply(this.leaf_smallX_bigY,pars) || lambda.apply(this.leaf_bigX_bigY,pars) || lambda.apply(this.leaf_smallX_smallY,pars) || lambda.apply(this.leaf_bigX_smallY,pars);
+            return result;
+        },
+        delegate_until_result_found_to_all_leaves_in_area: function(x1,y1,x2,y2,lambda,pars){ //x2,y2 have to be greater or equal than x,y
+            if (!this.is_split()){return;}
+            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_until_result_found_to_all_leaves_in_area");
+            var result = null;
+            if (this.quad_center_point_x >= x1 && this.quad_center_point_y >= y1 ){ result = lambda.apply(this.leaf_smallX_smallY,pars) }
+            if (result){return result;}
+            if (this.quad_center_point_x >= x1 && this.quad_center_point_y <  y2 ){ result = lambda.apply(this.leaf_smallX_smallY,pars) }
+            if (result){return result;}
+            if (this.quad_center_point_x <  x2 && this.quad_center_point_y >= y1 ){ result = lambda.apply(this.leaf_smallX_smallY,pars) }
+            if (result){return result;}
+            if (this.quad_center_point_x <  x2 && this.quad_center_point_y <  y2 ){ result = lambda.apply(this.leaf_smallX_smallY,pars) }
+
+            return result;
+        },
+
+        delegate_collate_all_results : function(lambda, pars){
+            if (!this.is_split()){return [];}
+            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_collate_all_results");
+            var result = [];
+            result.push(lambda.apply(this.leaf_smallX_bigY,pars));
+            result.push(lambda.apply(this.leaf_bigX_bigY,pars));
+            result.push(lambda.apply(this.leaf_smallX_smallY,pars));
+            result.push(lambda.apply(this.leaf_bigX_smallY,pars));
+            return result;
+        },
+        delegate_to_correct_leaf_for_xy : function(x,y,lambda,pars){
+            if (!this.is_split()){return lambda.apply(this,pars);}
+            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_to_correct_leaf_for_xy");
+
+            if (this.quad_center_point_x < x){
+                if (this.quad_center_point_y < y){
+                    return lambda.apply(this.leaf_bigX_bigY,pars);
+                }
+                else {
+                    return lambda.apply(this.leaf_bigX_smallY,pars);
+                }
+            }
+            else{
+                if (this.quad_center_point_y < y){
+                    return lambda.apply(this.leaf_smallX_bigY,pars);
+                }
+                else {
+                    return lambda.apply(this.leaf_smallX_smallY,pars);
+                }
+            }
+        },
+        find_correct_leaf_for_xy : function(x,y){
+            if (!this.is_split()){return this;}
+            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" find_correct_leaf_for_xy");
+
+            if (x > this.quad_center_point_x){
+                if (y > this.quad_center_point_y){
+                    return this.leaf_bigX_bigY.find_correct_leaf_for_xy(x,y);
+                }
+                else {
+                    return this.leaf_bigX_smallY.find_correct_leaf_for_xy(x,y);
+                }
+            }
+            else{
+                if (y > this.quad_center_point_y){
+                    return this.leaf_smallX_bigY.find_correct_leaf_for_xy(x,y);
+                }
+                else {
+                    return this.leaf_smallX_smallY.find_correct_leaf_for_xy(x,y);
+                }
+            }
+        },
+
         findMobById : function(id){
             for (var i = this.mobs.length -1 ; i >= 0; i--){
                 var mob = this.mobs[i];
@@ -177,25 +269,41 @@ function World(){
                     return mob;
                 }
             }
+            return this.delegate_until_result_found( this.findMobById, [id] );
+
         },
-        addMobAtXY : function(aMob,x,y){
-            publish("add mob",{ id:aMob.id(), controller:aMob.controllerId() });
-            this.mobs.push(aMob);
-            this.moveMobToXY(aMob,x,y);
+        moveMobToXY : function(aMob,x,y){
+
+            var targetLeaf = world.find_correct_leaf_for_xy(x,y);
+            if (targetLeaf != aMob.world){
+                if (aMob.world != null){
+                    aMob.world.mobs.splice(aMob.world.mobs.indexOf(aMob));
+                }
+                else{
+                    publish("add mob",{ id:aMob.id(), controller:aMob.controllerId() });
+                }
+                targetLeaf.mobs.push(aMob);
+                aMob.world = targetLeaf;
+            }
+
+
+            aMob.x = x;
+            aMob.y = y;
+            publish("move mob",{id: aMob.id(), x: x, y: y});
         },
-		moveMobToXY : function(aMob,x,y){
-			aMob.x = x;
-			aMob.y = y;
-			publish("move mob",{id: aMob.id(), x: x, y: y});
-		},
 		buildingXY	: function(building,x,y){
+            var targetLeaf = world.find_correct_leaf_for_xy(x,y);
+            targetLeaf.buildings.push(building);
 			building.x = x;
 			building.y = y;
-            this.buildings.push(building);
+
             publishBuild(building);
 		},
         mobGap : function(){return 20},
-        cleanUpCorpses  : function(){           //TODO PAOLO FIX ME
+        cleanUpCorpses  : function(){           //TODO PAOLO FIX ME QUAD
+            return;
+
+            throw "not converted to quadtrees";
 
             var playerMobCount          = {};
             var playerFarmCount         = {};
@@ -206,16 +314,13 @@ function World(){
             for (var i = this.mobs.length-1; i>=0 ; i--){
                 var mob = this.mobs[i];
                 if (!mob.alive()){
-
                     publishRemoveMob(mob,"death");
-
                     this.mobs.splice(i,1);
                 }
                 else {
                     playerMobCount[mob.controllerId()]++;
                 }
             }
-
             for (var i = this.buildings.length-1; i>=0 ; i--){
                 var build = this.buildings[i];
                 if (!build.alive()){
@@ -246,19 +351,25 @@ function World(){
         },
         closeEnemy      : function(mob){
             var target = null;
+            var attackRange = 30;
 
             valueIterator(this.mobs, function(aMob){
 
                 if (aMob === mob) { return 1; }
-                if (aMob.controllerId() != mob.controllerId() && close(aMob.x,mob.x,30) && close(aMob.y,mob.y,30)){
+                if (aMob.controllerId() != mob.controllerId() && close(aMob.x,mob.x,attackRange) && close(aMob.y,mob.y,attackRange)){
                     target = aMob;
                     return null;
                 }
                 return 1;
             });
-            return target;
+            return target || this.delegate_until_result_found_to_all_leaves_in_area(mob.x-attackRange,mob.y-attackRange,mob.x+attackRange,mob.y+attackRange, this.closeEnemy,[mob]) ;
         },
         canBuildAtXY : function(x,y,building){
+            var range = MAX_NTT_WIDTH+this.mobGap();
+
+            return !world._cantBuildAtXYlookingInX2Y2X3Y3(x,y,building,x-range,y-range,x+building.width()+this.mobGap(),y+building.depth()+this.mobGap());
+        },
+        _cantBuildAtXYlookingInX2Y2X3Y3 : function(x,y,building,x2,y2,x3,y3){
 
             var buildGap = this.mobGap();
 
@@ -272,24 +383,25 @@ function World(){
                         &&
                     aBuilding.y <= y+building.depth()+buildGap && y < aBuilding.y+aBuilding.depth()+buildGap
                     ){
-                    return false;
+                    return true;
                 }
             }
             var isClose = false;
 
             valueIterator(this.mobs, function(aMob){
                 if (
-                    aMob.x <= x+building.width() && x < aMob.x+20
+                    aMob.x <= x+building.width() && x < aMob.x+buildGap
                         &&
-                    aMob.y <= y+building.depth() && y < aMob.y+20
+                    aMob.y <= y+building.depth() && y < aMob.y+buildGap
                     ){
                     isClose = true;
                     return null;
                 }
             });
-            if (isClose) {return false;}
+            if (isClose) {return true;}
 
-            return true;
+            return this.delegate_until_result_found_to_all_leaves_in_area(x2,y2,x3,y3,this._cantBuildAtXYlookingInX2Y2X3Y3,[x,y,building,x2,y2,x3,y3]);
+
         },
 		occupiedXY : function(x,y, mob){
 			for (var aBuildingId in this.buildings) {
@@ -312,16 +424,20 @@ function World(){
 				}
 			});
             if (isClose) {return true;}
-			return null;
+
+            return this.delegate_until_result_found_to_all_leaves_in_area(x,y,x+MAX_NTT_WIDTH,y+MAX_NTT_WIDTH,this.occupiedXY,[x,y,mob]);
 		},
         mobForEach  : function(lambda){
             this.mobs.forEach(lambda);
+            this.delegate_collate_all_results(this.mobForEach,lambda);
         },
         buildingForEach : function(lambda){
             this.buildings.forEach(lambda);
+            this.delegate_collate_all_results(this.buildingForEach,lambda);
         }   ,
         mobCount        : function(){
-            return this.mobs.length;
+            var results = this.delegate_collate_all_results(this.mobCount);
+            return this.mobs.length+results.reduce(function(prev,cur){return prev+cur;},0);
         }
 	};
 }
@@ -345,11 +461,11 @@ function Building(player, type){
         lagUntil : function(tick){
             this.cantActUntilTick = tick;
         },
-		id		: function()	{ return myId; 			        },
-		type 	: function()	{ return type.name();           },
-		width 	: function()	{ return type.width();	        },
-		depth 	: function()	{ return type.depth();	        },
-        behave  : function(tick){ return type.behaveFunc(this, tick); }
+		id		: function()	{ return myId; 			                },
+		type 	: function()	{ return type.name();                   },
+		width 	: function()	{ return type.width();	                },
+		depth 	: function()	{ return type.depth();	                },
+        behave  : function(tick){ return type.behaveFunc(this, tick);   }
 
 	};
 		
@@ -383,11 +499,11 @@ function Mob(player){
 
     var hpAtGeneration = d(6)+2;
 	var mob = {
-        //identifier : (player?player.id:null),
 		x : 0,
 		y : 0,
 		destX : 0,
 		destY : 0,
+        world : null,
         hp : hpAtGeneration,
         hpMax : hpAtGeneration,
         cantActUntilTick : 0,
@@ -534,6 +650,9 @@ function SpecialEventGenerator(){
     var time = 0;
     return {
         specialEvent	: function(){
+
+            return;
+
             if (players.length == 0){return;}
 
             var now = new Date().getTime();
