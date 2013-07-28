@@ -1,6 +1,6 @@
-var util = require("util"),
-    io = require("socket.io"),
-	Player = require("./Player").Player;
+var util    = require("util"),
+    io      = require("socket.io"),
+	Player  = require("./Player").Player;
 
 var socket,
     players,
@@ -17,8 +17,8 @@ console.log("JERKFACE SANITIZE INPUTS");
 	
 function init() {
     players = [];
-	world = World();
-	ticker = Ticker(20);
+	world = World(1000,300,2048);
+	ticker = Ticker(33);
 	
 	socket = io.listen(8000);
 	
@@ -71,8 +71,7 @@ function onNewPlayer(data) {
 	this.emit("assign id",{id:newPlayer.id});
 	players.push(newPlayer);
 	
-	world.mobForEach(		function(mob)		{that.emit("add mob",{ id:mob.id(), controller:mob.controllerId() });that.emit("move mob",{id: mob.id(), x: mob.x, y: mob.y});});
-
+	world.mobForEach(		function(mob)		{that.emit("add mob",{ id:mob.id(), controller:mob.controllerId() }); publishMoveMob(mob); });
     world.buildingForEach(  function(building)	{publishBuild(building)});
 
     spawnMob(newPlayer,100,100,100);
@@ -101,7 +100,7 @@ function spawnMob(player,xCenter,yCenter,spread){
     do {
         x = xCenter+d(spread)-spread/2;
         y = yCenter+d(spread)-spread/2;
-        attempt++;
+        attempt--;
     } while (world.occupiedXY(x,y,myMob) && attempt);
     if (!attempt){return null}
     world.moveMobToXY(myMob,x,y);
@@ -130,7 +129,6 @@ function onMoveOrderMob(data) {
 	myMob.destY = data.y;
 }
 function onBuild(data){
-	//console.log("build "+JSON.stringify(data));
 	var buildingPlayer = playerById(this.id);
 
 	if (!buildingPlayer ) {
@@ -158,9 +156,13 @@ function playerById(id) {
 
     return false;
 };
+
+var worldCount = 0;
+
 function World(centerX,centerY,size){
 	return {
         // CONTENTS
+        id: worldCount++,
         mobs : [],
 		buildings:[],
         leaf_smallX_bigY : null,  // small x, big y
@@ -171,57 +173,102 @@ function World(centerX,centerY,size){
         quad_center_point_y : centerY,
         size : size,
 
+        display_debug_info : function(){
+            console.log("world id:"+this.id+" "+this.quad_center_point_x+":"+this.quad_center_point_y+":"+this.size+" mobs:"+this.mobs.length);
+            this.delegate_collate_all_results(this.display_debug_info);
+        },
+
         split       : function(){
-            if (this.size< 10){ return; }
+            if (this.is_split()){
+                this.leaf_bigX_bigY.split();
+                this.leaf_bigX_smallY.split();
+                this.leaf_smallX_bigY.split();
+                this.leaf_smallX_smallY.split();
+                return;
+            }
+
+            if (this.mobs.length < 20 || this.size < 64){ return; }
+            console.log("splitting size:"+this.size);
 
             var d = this.size/2;
             var center_d = d/2;
-
-
 
             this.leaf_smallX_smallY = World(this.quad_center_point_x-center_d,this.quad_center_point_y-center_d,d);
             this.leaf_smallX_bigY   = World(this.quad_center_point_x-center_d,this.quad_center_point_y+center_d,d);
             this.leaf_bigX_smallY   = World(this.quad_center_point_x+center_d,this.quad_center_point_y-center_d,d);
             this.leaf_bigX_bigY     = World(this.quad_center_point_x+center_d,this.quad_center_point_y+center_d,d);
 
+            //this.display_debug_info();
+
+            var that = this;
+            var transfers = [];
+            this.mobs.forEach(function(mob){
+                var targetLeaf;
+                if (mob.x > that.quad_center_point_x){
+                    if (mob.y > that.quad_center_point_y){
+                        targetLeaf = that.leaf_bigX_bigY;
+                    }
+                    else {
+                        targetLeaf = that.leaf_bigX_smallY;
+                    }
+                } else {
+                    if (mob.y > that.quad_center_point_y){
+                        targetLeaf = that.leaf_smallX_bigY;
+                    }
+                    else {
+                        targetLeaf = that.leaf_smallX_smallY;
+                    }
+                }
+
+                transfers.push({
+                    world   : targetLeaf,
+                    mob     : mob
+                });
+
+            });
+            transfers.forEach(function(entry){
+                entry.world.moveMobToXY(entry.mob,entry.mob.x,entry.mob.y)
+            });
+
+
+            console.log("split complete");
+            this.mobs = [];
         },
         is_split    : function(){
             return (this.leaf_smallX_bigY);
         },
         delegate_until_result_found : function(lambda, pars){
             if (!this.is_split()){return;}
-            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_until_result_found");
             var result = lambda.apply(this.leaf_smallX_bigY,pars) || lambda.apply(this.leaf_bigX_bigY,pars) || lambda.apply(this.leaf_smallX_smallY,pars) || lambda.apply(this.leaf_bigX_smallY,pars);
             return result;
         },
         delegate_until_result_found_to_all_leaves_in_area: function(x1,y1,x2,y2,lambda,pars){ //x2,y2 have to be greater or equal than x,y
             if (!this.is_split()){return;}
-            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_until_result_found_to_all_leaves_in_area");
-            var result = null;
+            var result = false;
             if (this.quad_center_point_x >= x1 && this.quad_center_point_y >= y1 ){ result = lambda.apply(this.leaf_smallX_smallY,pars) }
             if (result){return result;}
-            if (this.quad_center_point_x >= x1 && this.quad_center_point_y <  y2 ){ result = lambda.apply(this.leaf_smallX_smallY,pars) }
+            if (this.quad_center_point_x >= x1 && this.quad_center_point_y <  y2 ){ result = lambda.apply(this.leaf_smallX_bigY,pars) }
             if (result){return result;}
-            if (this.quad_center_point_x <  x2 && this.quad_center_point_y >= y1 ){ result = lambda.apply(this.leaf_smallX_smallY,pars) }
+            if (this.quad_center_point_x <  x2 && this.quad_center_point_y >= y1 ){ result = lambda.apply(this.leaf_bigX_smallY,pars) }
             if (result){return result;}
-            if (this.quad_center_point_x <  x2 && this.quad_center_point_y <  y2 ){ result = lambda.apply(this.leaf_smallX_smallY,pars) }
+            if (this.quad_center_point_x <  x2 && this.quad_center_point_y <  y2 ){ result = lambda.apply(this.leaf_bigX_bigY,pars) }
+
 
             return result;
         },
-
         delegate_collate_all_results : function(lambda, pars){
             if (!this.is_split()){return [];}
-            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_collate_all_results");
+            //console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_collate_all_results");
             var result = [];
+            result.push(lambda.apply(this.leaf_smallX_smallY ,pars));
             result.push(lambda.apply(this.leaf_smallX_bigY,pars));
-            result.push(lambda.apply(this.leaf_bigX_bigY,pars));
-            result.push(lambda.apply(this.leaf_smallX_smallY,pars));
             result.push(lambda.apply(this.leaf_bigX_smallY,pars));
+            result.push(lambda.apply(this.leaf_bigX_bigY,pars));
             return result;
         },
         delegate_to_correct_leaf_for_xy : function(x,y,lambda,pars){
             if (!this.is_split()){return lambda.apply(this,pars);}
-            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_to_correct_leaf_for_xy");
+            //console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" delegate_to_correct_leaf_for_xy");
 
             if (this.quad_center_point_x < x){
                 if (this.quad_center_point_y < y){
@@ -242,7 +289,7 @@ function World(centerX,centerY,size){
         },
         find_correct_leaf_for_xy : function(x,y){
             if (!this.is_split()){return this;}
-            console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" find_correct_leaf_for_xy");
+            //console.log(this.quad_center_point_x+":"+this.quad_center_point_y+" find_correct_leaf_for_xy");
 
             if (x > this.quad_center_point_x){
                 if (y > this.quad_center_point_y){
@@ -275,21 +322,21 @@ function World(centerX,centerY,size){
         moveMobToXY : function(aMob,x,y){
 
             var targetLeaf = world.find_correct_leaf_for_xy(x,y);
-            if (targetLeaf != aMob.world){
-                if (aMob.world != null){
-                    aMob.world.mobs.splice(aMob.world.mobs.indexOf(aMob));
-                }
-                else{
-                    publish("add mob",{ id:aMob.id(), controller:aMob.controllerId() });
-                }
+            if (!aMob.world){
+                publish("add mob",{ id:aMob.id(), controller:aMob.controllerId() });
+
                 targetLeaf.mobs.push(aMob);
                 aMob.world = targetLeaf;
             }
+            else if (targetLeaf != aMob.world){
+                aMob.world.mobs.splice(aMob.world.mobs.indexOf(aMob),1);
 
-
+                targetLeaf.mobs.push(aMob);
+                aMob.world = targetLeaf;
+            }
             aMob.x = x;
             aMob.y = y;
-            publish("move mob",{id: aMob.id(), x: x, y: y});
+            publishMoveMob(aMob);
         },
 		buildingXY	: function(building,x,y){
             var targetLeaf = world.find_correct_leaf_for_xy(x,y);
@@ -300,47 +347,27 @@ function World(centerX,centerY,size){
             publishBuild(building);
 		},
         mobGap : function(){return 20},
-        cleanUpCorpses  : function(){           //TODO PAOLO FIX ME QUAD
-            return;
+        cleanUpCorpses  : function(){
 
-            throw "not converted to quadtrees";
+            var values = {};
 
-            var playerMobCount          = {};
-            var playerFarmCount         = {};
-            var playerMeadHouseCount    = {};
+            players.forEach(function(p){
+                values[p.id] = {};
+                values[p.id].playerMobCount = 0;
+                values[p.id].playerFarmCount = 0;
+                values[p.id].playerMeadHouseCount = 0;
+            })
 
-            players.forEach(function(p){ playerMobCount[p.id] = 0;playerFarmCount[p.id] = 0;playerMeadHouseCount[p.id] = 0; })
+            this.countAndCleanStuff(values);
 
-            for (var i = this.mobs.length-1; i>=0 ; i--){
-                var mob = this.mobs[i];
-                if (!mob.alive()){
-                    publishRemoveMob(mob,"death");
-                    this.mobs.splice(i,1);
-                }
-                else {
-                    playerMobCount[mob.controllerId()]++;
-                }
-            }
-            for (var i = this.buildings.length-1; i>=0 ; i--){
-                var build = this.buildings[i];
-                if (!build.alive()){
-                    publishRemoveBuilding(build,"burnt");
-                    this.buildings.splice(i,1);
-                }
-                else {
-                    playerFarmCount[build.controllerId()]++;
-                }
-            }
-
-            valueIterator(playerMobCount,function(value,key){
-
+            valueIterator(values,function(value,key){
                 var player = playerById(key);
                 if (player){
                     player.setMobCount(value);
                 }
             });
 
-            valueIterator(playerFarmCount,function(value,key){
+            valueIterator(values,function(value,key){
 
                 var player = playerById(key);
                 if (player){
@@ -349,25 +376,57 @@ function World(centerX,centerY,size){
             });
 
         },
+        countAndCleanStuff  :function(counts){
+            for (var i = this.mobs.length; i-- ; ){
+                var mob = this.mobs[i];
+                if (!mob.alive()){
+                    publishRemoveMob(mob,"death");
+                    this.mobs.splice(i,1);
+                }
+                else {
+                    if (!mob){
+                        console.log(JSON.stringify(this.mobs));
+                        process.exit();
+                    }
+                    if (counts[mob.controllerId()]){
+                        counts[mob.controllerId()].playerMobCount++;
+                    }
+                }
+            }
+
+            for (var i = this.buildings.length; i-- ; ){
+                var build = this.buildings[i];
+                if (!build.alive()){
+                    publishRemoveBuilding(build,"burnt");
+                    this.buildings.splice(i,1);
+                }
+                else {
+                    if (counts[build.controllerId()]){
+                        counts[build.controllerId()].playerFarmCount++;
+                    }
+                }
+            }
+            var results = this.delegate_collate_all_results(this.countAndCleanStuff,[counts]);
+        },
         closeEnemy      : function(mob){
             var target = null;
             var attackRange = 30;
 
             valueIterator(this.mobs, function(aMob){
-
-                if (aMob === mob) { return 1; }
-                if (aMob.controllerId() != mob.controllerId() && close(aMob.x,mob.x,attackRange) && close(aMob.y,mob.y,attackRange)){
+                if ( aMob === mob ) { return 1; }
+                if ( aMob.controllerId() != mob.controllerId() && close(aMob.x,mob.x,attackRange) && close(aMob.y,mob.y,attackRange )){
                     target = aMob;
                     return null;
                 }
                 return 1;
             });
-            return target || this.delegate_until_result_found_to_all_leaves_in_area(mob.x-attackRange,mob.y-attackRange,mob.x+attackRange,mob.y+attackRange, this.closeEnemy,[mob]) ;
+
+            return (target || this.delegate_until_result_found_to_all_leaves_in_area(mob.x-attackRange,mob.y-attackRange,mob.x+attackRange,mob.y+attackRange, this.closeEnemy,[mob]) ) ;
         },
         canBuildAtXY : function(x,y,building){
-            var range = MAX_NTT_WIDTH+this.mobGap();
+            var bottom_range = MAX_NTT_WIDTH+this.mobGap();
 
-            return !world._cantBuildAtXYlookingInX2Y2X3Y3(x,y,building,x-range,y-range,x+building.width()+this.mobGap(),y+building.depth()+this.mobGap());
+            return !world._cantBuildAtXYlookingInX2Y2X3Y3(x,y,building,x-bottom_range,y-bottom_range,x+building.width()+this.mobGap(),y+building.depth()+this.mobGap());
         },
         _cantBuildAtXYlookingInX2Y2X3Y3 : function(x,y,building,x2,y2,x3,y3){
 
@@ -375,8 +434,6 @@ function World(centerX,centerY,size){
 
             for (var aBuildingId in this.buildings) {
                 var aBuilding = this.buildings[aBuildingId];
-
-
 
                 if (
                     aBuilding.x <= x+building.width()+buildGap && x < aBuilding.x+aBuilding.width()+buildGap
@@ -390,9 +447,9 @@ function World(centerX,centerY,size){
 
             valueIterator(this.mobs, function(aMob){
                 if (
-                    aMob.x <= x+building.width() && x < aMob.x+buildGap
+                    aMob.x <= x+building.width()+buildGap && x < aMob.x+buildGap
                         &&
-                    aMob.y <= y+building.depth() && y < aMob.y+buildGap
+                    aMob.y <= y+building.depth()+buildGap && y < aMob.y+buildGap
                     ){
                     isClose = true;
                     return null;
@@ -404,6 +461,7 @@ function World(centerX,centerY,size){
 
         },
 		occupiedXY : function(x,y, mob){
+
 			for (var aBuildingId in this.buildings) {
 				var aBuilding = this.buildings[aBuildingId];
 				if (
@@ -425,15 +483,22 @@ function World(centerX,centerY,size){
 			});
             if (isClose) {return true;}
 
-            return this.delegate_until_result_found_to_all_leaves_in_area(x,y,x+MAX_NTT_WIDTH,y+MAX_NTT_WIDTH,this.occupiedXY,[x,y,mob]);
-		},
+            var k = this.delegate_until_result_found_to_all_leaves_in_area( x-MAX_NTT_WIDTH,y-MAX_NTT_WIDTH, x+MAX_NTT_WIDTH,y+MAX_NTT_WIDTH, this.occupiedXY, [x,y,mob] );
+		    //console.log("delegated occupy:"+k);
+            return k;
+        },
         mobForEach  : function(lambda){
-            this.mobs.forEach(lambda);
-            this.delegate_collate_all_results(this.mobForEach,lambda);
+
+            for (var i = this.mobs.length ; i-- ; ){
+                lambda(this.mobs[i]);
+            }
+
+            //this.mobs.forEach(lambda);
+            this.delegate_collate_all_results(this.mobForEach,[lambda]);
         },
         buildingForEach : function(lambda){
             this.buildings.forEach(lambda);
-            this.delegate_collate_all_results(this.buildingForEach,lambda);
+            this.delegate_collate_all_results(this.buildingForEach,[lambda]);
         }   ,
         mobCount        : function(){
             var results = this.delegate_collate_all_results(this.mobCount);
@@ -445,7 +510,7 @@ function close(a,b,range){return (Math.abs(a-b) < range);}
 function Building(player, type){
 	var myId = nttCounter++;
 	
-	var building = {
+	return {
         player : player,
 		x: 0,
 		y: 0,
@@ -468,8 +533,6 @@ function Building(player, type){
         behave  : function(tick){ return type.behaveFunc(this, tick);   }
 
 	};
-		
-	return building;
 }
 
 LongHouse = function(){
@@ -498,7 +561,7 @@ function Mob(player){
 	var myId = nttCounter++;
 
     var hpAtGeneration = d(6)+2;
-	var mob = {
+	return {
 		x : 0,
 		y : 0,
 		destX : 0,
@@ -507,6 +570,12 @@ function Mob(player){
         hp : hpAtGeneration,
         hpMax : hpAtGeneration,
         cantActUntilTick : 0,
+        display_debug_info : function(asString){
+            var msg ="mob id:"+myId+" "+this.world.id+":"+this.x+":"+this.y;
+            if (asString){ return msg; }
+            console.log(msg);
+
+        },
         alive : function(){ return this.hp > 0;},
         heal1HP : function(){ if (this.hp < this.hpMax){this.hp++}},
         controller    :   function(){
@@ -517,7 +586,7 @@ function Mob(player){
 		},
 		id : function(){ return myId; },
         canActNow : function(tick){
-            return (this.cantActUntilTick <= tick);
+            return (this.cantActUntilTick <= tick && this.alive());
         },
         lagUntil : function(tick){
             this.cantActUntilTick = tick;
@@ -529,11 +598,13 @@ function Mob(player){
                 if (enemy){
                     this.lagUntil(ticks+10);
                     this.attack(enemy);
-                    if (!this.controllerId()) {return;}
+                    return;
                 }
 			    var destination = this.nextDestination();
 
-			    if (destination){world.moveMobToXY(this,destination.x,destination.y);}
+
+                if (destination){world.moveMobToXY(this,destination.x,destination.y);}
+                var after = this.display_debug_info(1);
             }
 		},
         attack : function(enemyMob){
@@ -609,9 +680,23 @@ function Mob(player){
 		}
 	};
 
-	return mob;
 }
 function sign(x) { return x > 0 ? 1 : x < 0 ? -1 : 0; }
+
+
+var debugOldMobCount =0;
+var debugCount = 0
+function mob_integrity(msg){
+    return;
+    var mobcount = world.mobCount();
+    if (debugOldMobCount > mobcount){
+        console.log("broken ******* "+msg);
+        world.display_debug_info();
+        if (debugCount++ > 10) process.exit();
+        return;
+    }
+    debugOldMobCount = mobcount;
+}
 
 function Ticker(msTick){
 	var last_tick_started_at = new Date().getTime();
@@ -619,6 +704,7 @@ function Ticker(msTick){
 	var running = false;
 	var time = 0;
     var tickCount = 0;
+    var debugOldMobCount = 0;
 	return {
 		tickStart	: function(){
 			if (running){return false;}
@@ -627,9 +713,15 @@ function Ticker(msTick){
 				return false;
 			}
             tickCount++;
+            mob_integrity("before split");
+            world.split();
+            mob_integrity("after split");
+
             if (this.lastSeconds() != Math.floor(now/1000)){
                 console.log("tick per second:"+tickCount);
                 console.log("mobs:"+world.mobCount());
+                //world.display_debug_info();
+
                 tickCount = 0;
             }
 			running = true;
@@ -645,13 +737,13 @@ function Ticker(msTick){
 	};
 }
 function SpecialEventGenerator(){
-    var next_event_not_before = new Date().getTime()+6000;
+    var next_event_not_before = 0; //new Date().getTime()+6000;
     var running = false;
     var time = 0;
     return {
         specialEvent	: function(){
 
-            return;
+
 
             if (players.length == 0){return;}
 
@@ -663,6 +755,7 @@ function SpecialEventGenerator(){
             this.horde();
 
             next_event_not_before = now + (d(60)+d(60)+30) *1000;
+            //next_event_not_before = now + 3*1000;
             return true;
         },
         horde   :   function(){
@@ -670,11 +763,10 @@ function SpecialEventGenerator(){
             var rndX = (d(2)-1.5)*2000+500;
             var rndY = (d(2)-1.5)*1000+300;
 
-
-            for (var i = d(50)+6; i>0;i--){
+            for (var i = d(50)+6; i-- ; ){
                 var hordling = spawnMob(null,rndX,rndY,500);
                 if(hordling) {
-                    hordling.hp = d(2);
+                    hordling.hp = 1;
                     hordling.destX = 1000+100+d(200);
                     hordling.destY = 600 +100+d(200);
                 }
@@ -683,15 +775,23 @@ function SpecialEventGenerator(){
     };
 }
 function valueIterator(hash, lambda){
+    for (var key = hash.length ; key-- ;) {
+            if (lambda(hash[key],key,hash) === null){
+                return;
+            }
+    }
+}
+
+function OLDvalueIterator(hash, lambda){
     for (var key in hash) {
         if (hash.hasOwnProperty(key)) {
             if (lambda(hash[key],key,hash) === null){
-                //console.log("key "+key+" out of "+hash.length);
                 return;
             }
         }
     }
 }
+
 function d(faces){
 	return (Math.floor(Math.random()*faces)+1 );
 }
@@ -710,6 +810,9 @@ function publishRemoveBuilding(building,cause){
 function publishAttack(attacker,defender){
     publish("attack",{id: attacker.id(), target:defender.id()});
 }
+function publishMoveMob(mob){
+    publish("move mob",{id: mob.id(), x: mob.x, y: mob.y});
+}
 
 init();
 
@@ -722,7 +825,6 @@ var tick_action = function() {
 
         shenaniganSource.specialEvent();
 
-		
 		world.mobForEach(
 			function(mob){
 				mob.behave(ticker.ticks());
@@ -734,13 +836,12 @@ var tick_action = function() {
                 building.behave(ticker.ticks());
             }
         )
-
         world.cleanUpCorpses();
 		ticker.tickDone();
 	}
 
 };
-setInterval(tick_action,20);
+setInterval(tick_action,10);
 
 tick_action();
 
